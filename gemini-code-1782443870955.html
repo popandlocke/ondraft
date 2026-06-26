@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Responsive Plinko Prototype</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f2f2f7; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            color: #1c1c1e; 
+            touch-action: none; 
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #app-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            max-width: 800px; 
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 12px;
+        }
+
+        #canvas-wrapper {
+            flex: 1;
+            width: 100%;
+            min-height: 0; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #canvas-container {
+            position: relative;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 15 / 16;
+            display: flex; 
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            background-color: #ffffff; 
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+            display: block;
+        }
+
+        #side-controls {
+            position: absolute;
+            left: 3.33%; 
+            top: 1.56%;  
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 100;
+        }
+
+        .btn-side {
+            background-color: rgba(142, 142, 147, 0.95);
+            color: white;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: transform 0.1s ease, background-color 0.15s ease;
+        }
+        .btn-side:active { transform: scale(0.92); }
+        .btn-side.active-mode { background-color: rgba(0, 122, 255, 0.95); }
+
+        #dashboard {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 8px 12px;
+            box-sizing: border-box;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+            flex-shrink: 0; 
+            gap: 10px;
+        }
+
+        .btn-group { display: flex; gap: 6px; }
+        button {
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: opacity 0.15s ease, transform 0.1s ease;
+            touch-action: manipulation;
+            font-family: inherit;
+        }
+        button:hover { opacity: 0.85; }
+        button:active { transform: scale(0.96); }
+
+        .btn-year { background-color: #34c759; color: white; padding: 12px 14px; font-size: 14px; }
+        .btn-year.gametime { background-color: #af52de; }
+        .btn-drop { background-color: #007aff; color: white; padding: 14px 32px; font-size: 18px; flex-grow: 1; margin: 0 10px; max-width: 200px; }
+        .btn-utility { background-color: #e5e5ea; color: #ff3b30; padding: 12px 14px; font-size: 13px; }
+        .btn-utility.reset { color: #ff9500; }
+
+        @media (max-width: 600px) {
+            #side-controls { gap: 6px; }
+            .btn-side { padding: 8px 10px; font-size: 11px; }
+            .btn-year { padding: 10px 12px; font-size: 13px; }
+            .btn-drop { padding: 12px 20px; font-size: 16px; margin: 0 5px; }
+            .btn-utility { padding: 10px 10px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="canvas-wrapper">
+            <div id="canvas-container">
+                <div id="side-controls">
+                    <button id="btn-cover-off" class="btn-side" onclick="setCover(false)">Cover Off</button>
+                    <button id="btn-cover-on" class="btn-side active-mode" onclick="setCover(true)">Cover On</button>
+                    <div style="height: 6px;"></div> 
+                    <button id="btn-cost-row" class="btn-side active-mode" onclick="setCostMode('row')">Cost: Row</button>
+                    <button id="btn-cost-pyramid" class="btn-side" onclick="setCostMode('pyramid')">Cost: Pyramid</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="dashboard">
+            <div class="btn-group">
+                <button class="btn-year" onclick="loadYear(1)">Y1</button>
+                <button class="btn-year" onclick="loadYear(2)">Y2</button>
+                <button class="btn-year" onclick="loadYear(3)">Y3</button>
+                <button class="btn-year gametime" onclick="loadYear(4)">GT</button>
+            </div>
+
+            <button class="btn-drop" onclick="releaseNextBall()">Drop Ball</button>
+
+            <div class="btn-group">
+                <button class="btn-utility" onclick="clearActiveBalls()">Clear</button>
+                <button class="btn-utility reset" onclick="resetFlaps()">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LOGICAL_WIDTH = 600;
+        const LOGICAL_HEIGHT = 640; 
+        
+        const BALL_RADIUS = 8.5; 
+        const PEG_RADIUS = 6.0; 
+        const TOTAL_ROWS = 8;
+        
+        const RESTITUTION = 0.42; 
+        const FRICTION = 0.03;
+        const GRAVITY = 1.0;
+
+        const BALL_TYPES = {
+            green:  { color: '#34c759', value: '2' },
+            blue:   { color: '#007aff', value: '3' },
+            purple: { color: '#af52de', value: '4' },
+            red:    { color: '#ff3b30', value: '6' },
+            gold:   { color: '#ffcc00', value: '8' }
+        };
+
+        let isCoverActive = true; 
+        let costMode = 'row'; 
+        
+        function setCover(state) {
+            isCoverActive = state;
+            document.getElementById('btn-cover-on').classList.toggle('active-mode', state === true);
+            document.getElementById('btn-cover-off').classList.toggle('active-mode', state === false);
+        }
+
+        function setCostMode(mode) {
+            costMode = mode;
+            document.getElementById('btn-cost-row').classList.toggle('active-mode', mode === 'row');
+            document.getElementById('btn-cost-pyramid').classList.toggle('active-mode', mode === 'pyramid');
+        }
+        
+        let windowSizeHalf = 20; 
+        let windowOffsetY = -10; 
+
+        const { Engine, Render, Runner, Bodies, Composite, Body, Vector, Events } = Matter;
+        const engine = Engine.create({ gravity: { y: GRAVITY } });
+        const canvasContainer = document.getElementById('canvas-container');
+        
+        const render = Render.create({
+            element: canvasContainer,
+            engine: engine,
+            options: {
+                width: LOGICAL_WIDTH,
+                height: LOGICAL_HEIGHT,
+                wireframes: false, 
+                background: 'transparent', 
+                pixelRatio: window.devicePixelRatio 
+            }
+        });
+
+        Render.run(render);
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        const wallThickness = 12; 
+        const baseThickness = 20; 
+        const troughCount = 9;
+        const usableWidth = LOGICAL_WIDTH - (wallThickness * 2);
+        const troughWidth = usableWidth / troughCount; 
+
+        const floorY = LOGICAL_HEIGHT - baseThickness;
+        const troughOuterHeight = 160; 
+        const innerWallHeight = troughOuterHeight * 0.8; 
+        const transitionY = floorY - troughOuterHeight; 
+
+        const tubeTopY = 10; 
+        const tubeHeight = 34; 
+        const tubeBottomY = tubeTopY + tubeHeight; 
+        const tubeWidth = 36;
+        
+        const spacingX = troughWidth; 
+        const topPegX = LOGICAL_WIDTH / 2; 
+        
+        // MOVED DOWN: Adjusted top row downwards to clear the feeder tube safely. 
+        // This naturally compresses the rest of the rows slightly while keeping them evenly spaced.
+        const topPegY = tubeBottomY + 53; 
+        const bottomRowY = transitionY; 
+        const spacingY = (bottomRowY - topPegY) / (TOTAL_ROWS - 1); 
+
+        const boxW = 180;
+        const boxH = 92; 
+        const boxX = LOGICAL_WIDTH - boxW/2 - 20; 
+        const boxY = tubeTopY; 
+
+        let marketPegs = []; 
+        let physicsBalls = [];  
+        let queuePool = [];     
+        window.hideWaitingBall = false;
+
+        function buildFrame() {
+            const wallColor = '#d1d1d6';
+            const wallStyle = { isStatic: true, render: { fillStyle: wallColor } };
+            const divStyle = { isStatic: true, render: { fillStyle: '#e5e5ea', strokeStyle: '#d1d1d6', lineWidth: 1 } };
+
+            Composite.add(engine.world, Bodies.rectangle(LOGICAL_WIDTH/2, floorY + wallThickness/2, LOGICAL_WIDTH, wallThickness, wallStyle));
+
+            Composite.add(engine.world, [
+                Bodies.rectangle(wallThickness/2, floorY - troughOuterHeight/2, wallThickness, troughOuterHeight, wallStyle),
+                Bodies.rectangle(LOGICAL_WIDTH - wallThickness/2, floorY - troughOuterHeight/2, wallThickness, troughOuterHeight, wallStyle)
+            ]);
+
+            for (let i = 1; i < troughCount; i++) {
+                const x = wallThickness + i * troughWidth;
+                const y = floorY - (innerWallHeight / 2);
+                Composite.add(engine.world, Bodies.rectangle(x, y, 4, innerWallHeight, divStyle));
+            }
+
+            Composite.add(engine.world, [
+                Bodies.rectangle(topPegX - tubeWidth/2 - wallThickness/2, tubeBottomY - tubeHeight/2, wallThickness, tubeHeight, wallStyle),
+                Bodies.rectangle(topPegX + tubeWidth/2 + wallThickness/2, tubeBottomY - tubeHeight/2, wallThickness, tubeHeight, wallStyle)
+            ]);
+
+            let lx1 = wallThickness/2, ly1 = transitionY;
+            let lx2 = topPegX - tubeWidth/2 - wallThickness/2, ly2 = tubeBottomY;
+            let lcx = (lx1 + lx2)/2, lcy = (ly1 + ly2)/2;
+            let ldx = lx2 - lx1, ldy = ly2 - ly1;
+            let llen = Math.sqrt(ldx*ldx + ldy*ldy);
+            let langle = Math.atan2(ldy, ldx);
+            Composite.add(engine.world, Bodies.rectangle(lcx, lcy, llen, wallThickness, { isStatic: true, angle: langle, render: { fillStyle: wallColor } }));
+
+            let rx1 = LOGICAL_WIDTH - wallThickness/2, ry1 = transitionY;
+            let rx2 = topPegX + tubeWidth/2 + wallThickness/2, ry2 = tubeBottomY;
+            let rcx = (rx1 + rx2)/2, rcy = (ry1 + ry2)/2;
+            let rdx = rx2 - rx1, rdy = ry2 - ry1;
+            let rlen = Math.sqrt(rdx*rdx + rdy*rdy);
+            let rangle = Math.atan2(rdy, rdx);
+            Composite.add(engine.world, Bodies.rectangle(rcx, rcy, rlen, wallThickness, { isStatic: true, angle: rangle, render: { fillStyle: wallColor } }));
+
+            Composite.add(engine.world, [
+                Bodies.circle(wallThickness/2, transitionY, wallThickness/2, wallStyle), 
+                Bodies.circle(LOGICAL_WIDTH - wallThickness/2, transitionY, wallThickness/2, wallStyle),
+                Bodies.circle(topPegX - tubeWidth/2 - wallThickness/2, tubeBottomY, wallThickness/2, wallStyle), 
+                Bodies.circle(topPegX + tubeWidth/2 + wallThickness/2, tubeBottomY, wallThickness/2, wallStyle)
+            ]);
+        }
+
+        class MarketPeg {
+            constructor(x, y, costRow, costPyramid) {
+                this.originX = x;
+                this.originY = y;
+                this.state = 0; 
+                this.angles = [0, -20 * (Math.PI / 180), 20 * (Math.PI / 180)];
+                
+                this.costRow = costRow;
+                this.costPyramid = costPyramid;
+                this.windowOpen = false;
+                this.locked = false;
+
+                this.currentVisualAngle = 0;
+                this.animationSpeed = 0.25; 
+
+                const rodLength = 25; 
+                const rodWidth = 5.0;    
+
+                const invis = { isStatic: true, render: { fillStyle: 'transparent', strokeStyle: 'transparent' } };
+
+                this.peg = Bodies.circle(x, y, PEG_RADIUS, invis);
+                this.flapStem = Bodies.rectangle(x, y - rodLength / 2, rodWidth, rodLength, invis);
+                this.flapTip = Bodies.circle(x, y - rodLength, rodWidth / 2, invis);
+                
+                this.body = Body.create({ parts: [this.peg, this.flapStem, this.flapTip], isStatic: true });
+
+                this.body.render.element = (ctx) => {
+                    const targetAngle = this.body.angle;
+                    this.currentVisualAngle += (targetAngle - this.currentVisualAngle) * this.animationSpeed;
+
+                    ctx.save();
+                    ctx.translate(this.originX, this.originY);
+                    ctx.rotate(this.currentVisualAngle);
+
+                    // Minimal Vector Tap Handle Neck (Significantly slimmed to match hitbox)
+                    ctx.beginPath();
+                    ctx.moveTo(-2.5, 0);
+                    ctx.lineTo(-3.5, -rodLength + 6);
+                    ctx.lineTo(-5, -rodLength + 6);
+                    ctx.lineTo(-4, -rodLength);
+                    ctx.lineTo(4, -rodLength);
+                    ctx.lineTo(5, -rodLength + 6);
+                    ctx.lineTo(3.5, -rodLength + 6);
+                    ctx.lineTo(2.5, 0);
+                    ctx.closePath();
+                    ctx.fillStyle = '#8a5a36'; 
+                    ctx.fill();
+
+                    // Tap Handle Oval Badge Top (Shrunk down proportionally)
+                    ctx.beginPath();
+                    ctx.ellipse(0, -rodLength, 6.5, 5, 0, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#d4af37'; 
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.ellipse(0, -rodLength, 5, 3.5, 0, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#6e4726'; 
+                    ctx.fill();
+
+                    // Smooth Mechanical Core Peg Pivot
+                    ctx.beginPath();
+                    ctx.arc(0, 0, PEG_RADIUS, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#4a4a4a'; 
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(0, 0, PEG_RADIUS - 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#b5b5b9'; 
+                    ctx.fill();
+
+                    ctx.restore();
+                };
+
+                Composite.add(engine.world, this.body);
+            }
+
+            cycleState() {
+                this.state = (this.state + 1) % 3;
+                Body.setAngle(this.body, this.angles[this.state]);
+            }
+
+            reset() {
+                this.state = 0;
+                this.locked = false;
+                this.windowOpen = false;
+                Body.setAngle(this.body, 0);
+            }
+        }
+
+        function buildPegGrid() {
+            for (let row = 0; row < TOTAL_ROWS; row++) {
+                const pegsInRow = row + 1;
+                const rowWidth = (pegsInRow - 1) * spacingX;
+                const startX = (LOGICAL_WIDTH - rowWidth) / 2;
+                const y = topPegY + row * spacingY;
+
+                let rIndex = TOTAL_ROWS - row; 
+
+                for (let col = 0; col < pegsInRow; col++) {
+                    const x = startX + col * spacingX;
+                    let cRow = rIndex; 
+                    let cPyramid = rIndex + Math.min(col, pegsInRow - 1 - col);
+                    marketPegs.push(new MarketPeg(x, y, cRow, cPyramid));
+                }
+            }
+        }
+
+        function drawVisualBall(ctx, x, y, typeKey) {
+            const config = BALL_TYPES[typeKey];
+            if (!config) return;
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.beginPath(); ctx.arc(0, 0, BALL_RADIUS, 0, 2 * Math.PI);
+            ctx.fillStyle = config.color; ctx.fill();
+            ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.lineJoin = 'round'; ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2.0; ctx.strokeText(config.value, 0, 0);
+            ctx.fillStyle = '#ffffff'; ctx.fillText(config.value, 0, 0);
+            ctx.restore();
+        }
+
+        function loadYear(yearNumber) {
+            queuePool = [];
+            let buildArray = [];
+
+            if (yearNumber === 1) {
+                for(let i=0; i<10; i++) { buildArray.push('green'); buildArray.push('blue'); }
+                buildArray.sort(() => Math.random() - 0.5);
+            } 
+            else if (yearNumber === 2) {
+                let pool = [];
+                for(let i=0; i<10; i++) { pool.push('green'); pool.push('blue'); pool.push('purple'); }
+                pool.sort(() => Math.random() - 0.5);
+                buildArray = pool.slice(0, 20);
+            } 
+            else if (yearNumber === 3) {
+                let pool = [];
+                for(let i=0; i<10; i++) { pool.push('green'); pool.push('blue'); pool.push('purple'); pool.push('red'); }
+                pool.sort(() => Math.random() - 0.5);
+                buildArray = pool.slice(0, 20);
+            } 
+            else if (yearNumber === 4) {
+                for(let i=0; i<10; i++) {
+                    buildArray.push('green'); buildArray.push('blue'); buildArray.push('purple'); 
+                    buildArray.push('red'); buildArray.push('gold');
+                }
+                buildArray.sort(() => Math.random() - 0.5);
+            }
+
+            queuePool = buildArray;
+
+            if (window.gameTimeInterval) clearInterval(window.gameTimeInterval);
+            
+            if (yearNumber === 4) {
+                setCover(false); 
+
+                window.gameTimeInterval = setInterval(() => {
+                    if (queuePool.length === 0) {
+                        clearInterval(window.gameTimeInterval);
+                        return;
+                    }
+                    fireDrop();
+                }, 180); 
+            }
+        }
+
+        function fireDrop() {
+            if (queuePool.length === 0) return;
+            const releasedType = queuePool.shift();
+            
+            const startX = topPegX;
+            const startY = tubeTopY + BALL_RADIUS; 
+            
+            const liveBall = Bodies.circle(startX, startY, BALL_RADIUS, {
+                restitution: RESTITUTION, friction: FRICTION, density: 0.002, render: { visible: false } 
+            });
+
+            liveBall.ballType = releasedType;
+            liveBall.ballValue = BALL_TYPES[releasedType].value;
+
+            Body.setVelocity(liveBall, { x: (Math.random() - 0.5) * 0.35, y: 0.1 });
+
+            physicsBalls.push(liveBall);
+            Composite.add(engine.world, liveBall);
+
+            window.hideWaitingBall = true;
+            setTimeout(() => window.hideWaitingBall = false, 130);
+        }
+
+        function releaseNextBall() { fireDrop(); }
+        function clearActiveBalls() { physicsBalls.forEach(ball => Composite.remove(engine.world, ball)); physicsBalls = []; }
+        
+        function resetFlaps() {
+            marketPegs.forEach(peg => peg.reset());
+            setCover(true); 
+        }
+
+        function handleInteraction(clientX, clientY) {
+            const canvasEl = render.canvas;
+            if (!canvasEl) return; 
+            
+            const rect = canvasEl.getBoundingClientRect();
+            const scaleX = LOGICAL_WIDTH / rect.width;
+            const scaleY = LOGICAL_HEIGHT / rect.height;
+
+            const logicalX = (clientX - rect.left) * scaleX;
+            const logicalY = (clientY - rect.top) * scaleY;
+            const h = windowSizeHalf;
+
+            marketPegs.forEach(peg => {
+                const cx = peg.originX;
+                const cy = peg.originY + windowOffsetY;
+
+                const dx = logicalX - cx;
+                const dy = logicalY - cy;
+
+                if (Math.abs(dx) <= h && Math.abs(dy) <= h) {
+                    if (isCoverActive) {
+                        if (!peg.windowOpen) {
+                            peg.windowOpen = true; 
+                        } else {
+                            if (dx > h - 14 && dx < h && dy > -h && dy < -h + 14) {
+                                peg.windowOpen = false;
+                                peg.locked = true; 
+                            } else {
+                                if (!peg.locked) peg.cycleState();
+                            }
+                        }
+                    } else {
+                        if (!peg.locked) peg.cycleState();
+                    }
+                }
+            });
+        }
+
+        buildFrame();
+        buildPegGrid();
+        loadYear(1); 
+
+        Events.on(render, 'afterRender', () => {
+            const ctx = render.context;
+
+            ctx.save();
+            ctx.fillStyle = '#e5e5ea'; ctx.strokeStyle = '#d1d1d6'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.roundRect(boxX - boxW/2, boxY, boxW, boxH, 8);
+            ctx.fill(); ctx.stroke();
+            ctx.restore();
+
+            marketPegs.forEach(peg => {
+                if (peg.body.render.element) peg.body.render.element(ctx);
+            });
+
+            physicsBalls.forEach(ball => {
+                drawVisualBall(ctx, ball.position.x, ball.position.y, ball.ballType);
+            });
+
+            if (isCoverActive) {
+                ctx.save();
+                ctx.fillStyle = '#d1d1d6'; 
+                
+                const coverTopY = tubeBottomY - 12; 
+                const coverBottomY = transitionY + 15; 
+
+                ctx.beginPath();
+                ctx.moveTo(topPegX - tubeWidth/2 - 16, coverTopY);
+                ctx.lineTo(topPegX + tubeWidth/2 + 16, coverTopY);
+                ctx.lineTo(LOGICAL_WIDTH, coverBottomY);
+                ctx.lineTo(0, coverBottomY);
+                ctx.closePath(); 
+
+                const h = windowSizeHalf;
+                const oy = windowOffsetY;
+
+                marketPegs.forEach(peg => {
+                    if (peg.windowOpen) {
+                        const cx = peg.originX;
+                        const cy = peg.originY + oy;
+
+                        ctx.moveTo(cx - h, cy - h);
+                        ctx.lineTo(cx - h, cy + h);
+                        ctx.lineTo(cx + h, cy + h);
+                        ctx.lineTo(cx + h, cy - h);
+                        ctx.closePath(); 
+                    }
+                });
+                ctx.fill();
+
+                marketPegs.forEach(peg => {
+                    const cx = peg.originX;
+                    const cy = peg.originY + oy;
+
+                    if (!peg.windowOpen) {
+                        ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(cx - h, cy - h, h*2, h*2);
+
+                        ctx.fillStyle = '#3a3a3c';
+                        ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        const displayCost = costMode === 'row' ? peg.costRow : peg.costPyramid;
+                        ctx.fillText(displayCost, cx, cy);
+
+                        if (peg.locked) {
+                            const chX = cx + h - 6;
+                            const chY = cy - h + 6;
+                            
+                            ctx.beginPath();
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = 2.5; 
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            ctx.moveTo(chX - 4, chY);
+                            ctx.lineTo(chX - 1, chY + 3);
+                            ctx.lineTo(chX + 5, chY - 4);
+                            ctx.stroke();
+                        }
+                    } else {
+                        ctx.strokeStyle = '#8e8e93';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(cx - h, cy - h, h*2, h*2);
+
+                        ctx.fillStyle = '#ff3b30';
+                        ctx.fillRect(cx + h - 14, cy - h, 14, 14);
+                        
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(cx + h - 11, cy - h + 3);
+                        ctx.lineTo(cx + h - 3, cy - h + 11);
+                        ctx.moveTo(cx + h - 3, cy - h + 3);
+                        ctx.lineTo(cx + h - 11, cy - h + 11);
+                        ctx.stroke();
+                    }
+                });
+                ctx.restore();
+            }
+
+            if (queuePool.length > 0 && !window.hideWaitingBall) {
+                drawVisualBall(ctx, topPegX, tubeTopY + BALL_RADIUS, queuePool[0]);
+            }
+            const startX = boxX - boxW/2 + 13;
+            const startY = boxY + boxH - 13;
+            for (let i = 1; i < queuePool.length; i++) {
+                const itemIndex = i - 1;
+                const col = itemIndex % 10; 
+                const row = Math.floor(itemIndex / 10);
+                drawVisualBall(ctx, startX + (col * 17), startY - (row * 17), queuePool[i]);
+            }
+        });
+
+        window.addEventListener('mousedown', (e) => { handleInteraction(e.clientX, e.clientY); });
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches && e.touches[0]) {
+                if (e.target === render.canvas) e.preventDefault();
+                handleInteraction(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+
+    </script>
+</body>
+</html>
