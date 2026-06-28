@@ -512,8 +512,8 @@
                 // Only allow removal if the ball is within the trough region
                 if (ball.position.y > transitionY) {
                     const dist = Math.hypot(logicalX - ball.position.x, logicalY - ball.position.y);
-                    // Hit radius is the ball size + 15px extra for easy tapping on mobile
-                    if (dist <= BALL_RADIUS + 5) {
+                    // Hit radius is exactly the ball size (padding removed to prevent tight cluster mis-clicks)
+                    if (dist <= BALL_RADIUS) {
                         clickedBallIndex = i;
                         break;
                     }
